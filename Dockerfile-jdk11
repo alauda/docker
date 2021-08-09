@@ -73,6 +73,8 @@ RUN echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.li
     apt-get install libgnutls30/testing -y && \
     apt-get install libseccomp2 -y && \
     apt-get install lz4 -y && \
+    apt-get install binutils -y && apt-get install binutils-common -y && apt-get install binutils-x86-64-linux-gnu -y && apt-get install libbinutils -y && \
+    apt-get install libavahi-client3 -y && apt-get install libavahi-common-data -y && apt-get install libavahi-common3 -y && \
     rm -rf /var/lib/apt/lists/*
 
 RUN ARCH= && ARCH_ALIAS= && dpkgArch="$(dpkg --print-architecture)" \
