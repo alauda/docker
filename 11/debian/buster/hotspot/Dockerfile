@@ -1,17 +1,108 @@
 FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debian
 
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y git curl gpg unzip && \
+RUN echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.list.d/bullseye.list && \
+    apt-get update -y && \
+    apt-get install git curl gpg unzip -y && \
+    apt-get install bash -y && \
+    apt-get install dirmngr -y && \
+    apt-get install gnupg -y && \
+    apt-get install gnupg-l10n -y && \
+    apt-get install gnupg-utils -y && \
+    apt-get install gpg -y && \
+    apt-get install gpg-agent -y && \
+    apt-get install gpg-wks-client -y && \
+    apt-get install gpg-wks-server -y && \
+    apt-get install gpgconf -y && \
+    apt-get install gpgsm -y && \
+    apt-get install git -y && \
+    apt-get install git-man -y && \
+    apt-get install libc-bin -y && \
+    apt-get install libc6 -y && \
+    apt-get install libc-dev-bin -y && \
+    apt-get install libc-devtools -y && \
+    apt-get install libc6-dev -y && \
+    apt-get install locales -y && \
+    apt-get install libc-l10n -y && \
+    apt-get install libidn2-0 -y && \
+    apt-get install libgcc1 -y && \
+    apt-get install gcc-8-base -y && \
+    apt-get install gcc-9 -y && \
+    apt-get install liblz4-1 -y && \
+    apt-get install libpcre2-8-0 -y && \
+    apt-get install libpng16-16 -y && \
+    apt-get install python2.7 -y && \
+    apt-get install python2.7-minimal -y && \
+    apt-get install libpython2.7-minimal -y && \
+    apt-get install libpython2.7-stdlib -y && \
+    apt-get install python-all -y && \
+    apt-get install sqlite3 -y && \
+    apt-get install libsqlite3-0 -y && \
+    apt-get install libssh2-1 -y && \
+    apt-get install libsystemd0 -y && \
+    apt-get install libudev1 -y && \
+    apt-get install tar -y && \
+    apt-get install libgcrypt20 -y && \
+    apt-get install libnettle8 -y && \
+    apt-get install nettle-bin -y && \
+    apt-get install nettle-dev -y && \
+    apt-get install golang-golang-x-crypto-dev -y && \
+    apt-get install libcommons-beanutils-java -y && \
+    apt-get install libcommons-beanutils-java-doc -y && \
+    apt-get install ant -y && \
+    apt-get install jetty9 -y && \
+    apt-get install libspring-aop-java -y && \
+    apt-get install libspring-beans-java -y && \
+    apt-get install libspring-context-java -y && \
+    apt-get install libspring-context-support-java -y && \
+    apt-get install libspring-core-java -y && \
+    apt-get install libspring-expression-java -y && \
+    apt-get install libspring-instrument-java -y && \
+    apt-get install libspring-jdbc-java -y && \
+    apt-get install libspring-jms-java -y && \
+    apt-get install libspring-messaging-java -y && \
+    apt-get install libspring-orm-java -y && \
+    apt-get install libspring-oxm-java -y && \
+    apt-get install libspring-test-java -y && \
+    apt-get install libspring-transaction-java -y && \
+    apt-get install libspring-web-java -y && \
+    apt-get install libspring-web-portlet-java -y && \
+    apt-get install libspring-web-servlet-java -y && \
+    apt-get install curl -y && \
+    apt-get install libgnutls30/testing -y && \
+    apt-get install libseccomp2 -y && \
+    apt-get install lz4 -y && \
+    apt-get install binutils -y && apt-get install binutils-common -y && apt-get install binutils-x86-64-linux-gnu -y && apt-get install libbinutils -y && apt-get install libctf-nobfd0 -y && \
+    apt-get install libctf0 -y && \
+    apt-get install libdom4j-java -y && \
+    apt-get install libgd3 -y && \
+    apt-get install libgif7 -y && \
+    apt-get install libglib2.0-0 -y && \
+    apt-get install libglib2.0-data -y && \
+    apt-get install libgssapi-krb5-2 -y && \
+    apt-get install libicu67 -y && \
+    apt-get install libjdom1-java -y && \
+    apt-get install libjpeg62-turbo -y && \
+    apt-get install libk5crypto3 -y && \
+    apt-get install libkrb5-3 -y && \
+    apt-get install libkrb5support0 -y && \
+    apt-get install libnss3 -y && \
+    apt-get install libxml2 -y && \
+    apt-get install libxmlgraphics-commons-java -y && \
+    apt-get install libxstream-java -y && \
+    apt-get install libyaml-snake-java -y && \
+    apt-get install linux-libc-dev -y && \
+    apt-get install libc3p0-java -y && \
+    apt-get install libhibernate3-java -y && \
+    apt-get install libxstream-java -y && \
+    apt-get install libavahi-client3 -y && apt-get install libavahi-common-data -y && apt-get install libavahi-common3 -y && \
     rm -rf /var/lib/apt/lists/*
 
-ARG TARGETARCH
 ARG GIT_LFS_VERSION=2.13.3
 
 # required for multi-arch support, revert to package cloud after:
 # https://github.com/git-lfs/git-lfs/issues/4546
 COPY git_lfs_pub.gpg /tmp/git_lfs_pub.gpg
-RUN GIT_LFS_ARCHIVE="git-lfs-linux-${TARGETARCH}-v${GIT_LFS_VERSION}.tar.gz" \
+RUN GIT_LFS_ARCHIVE="git-lfs-linux-$(dpkg --print-architecture)-v${GIT_LFS_VERSION}.tar.gz" \
     GIT_LFS_RELEASE_URL="https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ARCHIVE}"\
     set -x; curl --fail --silent --location --show-error --output "/tmp/${GIT_LFS_ARCHIVE}" "${GIT_LFS_RELEASE_URL}" && \
     curl --fail --silent --location --show-error --output "/tmp/git-lfs-sha256sums.asc" https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/sha256sums.asc && \
@@ -66,16 +157,7 @@ RUN curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}
 ARG JENKINS_VERSION
 ENV JENKINS_VERSION ${JENKINS_VERSION:-2.235.4}
 
-# jenkins.war checksum, download will be validated using it
-ARG JENKINS_SHA=e5688a8f07cc3d79ba3afa3cab367d083dd90daab77cebd461ba8e83a1e3c177
-
-# Can be used to customize where jenkins.war get downloaded from
-ARG JENKINS_URL=https://repo.jenkins-ci.org/public/org/jenkins-ci/main/jenkins-war/${JENKINS_VERSION}/jenkins-war-${JENKINS_VERSION}.war
-
-# could use ADD but this one does not check Last-Modified header neither does it allow to control checksum
-# see https://github.com/docker/docker/issues/8331
-RUN curl -fsSL ${JENKINS_URL} -o /usr/share/jenkins/jenkins.war \
-  && echo "${JENKINS_SHA}  /usr/share/jenkins/jenkins.war" | sha256sum -c -
+COPY jenkins.war /usr/share/jenkins/jenkins.war
 
 ENV JENKINS_UC https://updates.jenkins.io
 ENV JENKINS_UC_EXPERIMENTAL=https://updates.jenkins.io/experimental
