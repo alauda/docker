@@ -1,4 +1,4 @@
-FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debian
+FROM openjdk:11-jdk-buster
 
 RUN apt-get update && \
     apt-get upgrade -y && \
