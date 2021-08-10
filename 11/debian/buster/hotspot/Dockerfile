@@ -1,4 +1,4 @@
-FROM openjdk:11-jdk-buster
+FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debian
 
 RUN apt-get update && \
     apt-get upgrade -y && \
@@ -87,7 +87,6 @@ COPY tini-shim.sh /bin/tini
 ENTRYPOINT ["/sbin/tini", "--", "/usr/local/bin/jenkins.sh"]
 
 # from a derived Dockerfile, can use `RUN install-plugins.sh active.txt` to setup $REF/plugins from a support bundle
-COPY plugins.sh /usr/local/bin/plugins.sh
 COPY install-plugins.sh /usr/local/bin/install-plugins.sh
 
 # metadata labels
