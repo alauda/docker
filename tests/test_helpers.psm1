@@ -1,30 +1,25 @@
+
+Import-Module -DisableNameChecking -Force $PSScriptRoot/../jenkins-support.psm1
+
 function Test-CommandExists($command) {
-    $oldPreference = $ErrorActionPreference
-    $ErrorActionPreference = 'stop'
-    $res = $false
-    try {
-        if(Get-Command $command) { 
-            $res = $true 
-        }
-    } catch {
-        $res = $false 
-    } finally {
-        $ErrorActionPreference=$oldPreference
-    }
-    return $res
+  $oldPreference = $ErrorActionPreference
+  $ErrorActionPreference = 'stop'
+  $res = $false
+  try {
+      if(Get-Command $command) { 
+          $res = $true 
+      }
+  } catch {
+      $res = $false 
+  } finally {
+      $ErrorActionPreference=$oldPreference
+  }
+  return $res
 }
 
 # check dependencies
 if(-Not (Test-CommandExists docker)) {
     Write-Error "docker is not available"
-}
-
-function Get-EnvOrDefault($name, $def) {
-    $entry = Get-ChildItem env: | Where-Object { $_.Name -eq $name } | Select-Object -First 1
-    if(($null -ne $entry) -and ![System.String]::IsNullOrWhiteSpace($entry.Value)) {
-        return $entry.Value
-    }
-    return $def
 }
 
 function Retry-Command {
@@ -38,16 +33,16 @@ function Retry-Command {
         [string] $SuccessMessage = "Command executed successfuly!",
         [string] $FailureMessage = "Failed to execute the command"
         )
-
+        
     process {
         $Attempt = 1
         $Flag = $true
-
+        
         do {
             try {
                 $PreviousPreference = $ErrorActionPreference
                 $ErrorActionPreference = 'Stop'
-                Invoke-Command -NoNewScope -ScriptBlock $ScriptBlock -OutVariable Result 4>&1
+                Invoke-Command -NoNewScope -ScriptBlock $ScriptBlock -OutVariable Result 4>&1              
                 $ErrorActionPreference = $PreviousPreference
 
                 # flow control will execute the next line only if the command in the scriptblock executed without any errors
@@ -71,52 +66,117 @@ function Retry-Command {
     }
 }
 
-function Cleanup($name='') {
-    if([System.String]::IsNullOrWhiteSpace($name)) {
-        $name = Get-EnvOrDefault 'AGENT_IMAGE' ''
+function Get-SutImage {
+    $FOLDER = Get-EnvOrDefault 'FOLDER' ''
+
+    $REAL_FOLDER=Resolve-Path -Path "$PSScriptRoot/../${FOLDER}"
+
+    if(($FOLDER -match '^(?<jdk>[0-9]+)[\\/](?<os>.+)[\\/](?<flavor>.+)[\\/](?<jvm>.+)$') -and (Test-Path $REAL_FOLDER)) {
+        $JDK = $Matches['jdk']
+        $FLAVOR = $Matches['flavor']
+        $JVM = $Matches['jvm']
+    } else {
+        Write-Error "Wrong folder format or folder does not exist: $FOLDER"
+        exit 1
     }
 
-    if(![System.String]::IsNullOrWhiteSpace($name)) {
-        #Write-Host "Cleaning up $name"
-        docker kill "$name" 2>&1 | Out-Null
-        docker rm -fv "$name" 2>&1 | Out-Null
-    }
+    return "pester-jenkins-$JDK-$JVM-$FLAVOR".ToLower()
 }
 
-function Is-AgentContainerRunning($container='') {
-    if([System.String]::IsNullOrWhiteSpace($container)) {
-        $container = Get-EnvOrDefault 'AGENT_CONTAINER' ''
+function Run-Program($cmd, $params, $verbose=$false) {
+    if($verbose) {
+        Write-Host "$cmd $params"
     }
-
-    Start-Sleep -Seconds 5
-    Retry-Command -RetryCount 3 -Delay 1 -ScriptBlock { 
-        $exitCode, $stdout, $stderr = Run-Program 'docker.exe' "inspect -f `"{{.State.Running}}`" $container"
-        if(($exitCode -ne 0) -or (-not $stdout.Contains('true')) ) {
-            throw('Exit code incorrect, or invalid value for running state')
-        }
-        return $true
-    } | Should -BeTrue
-}
-
-function Run-Program($cmd, $params) {
-    #Write-Host "cmd = $cmd, params = $params"
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.CreateNoWindow = $true
-    $psi.UseShellExecute = $false
-    $psi.RedirectStandardOutput = $true
+    $psi = New-Object System.Diagnostics.ProcessStartInfo 
+    $psi.CreateNoWindow = $true 
+    $psi.UseShellExecute = $false 
+    $psi.RedirectStandardOutput = $true 
     $psi.RedirectStandardError = $true
     $psi.WorkingDirectory = (Get-Location)
-    $psi.FileName = $cmd
+    $psi.FileName = $cmd 
     $psi.Arguments = $params
-    $proc = New-Object System.Diagnostics.Process
-    $proc.StartInfo = $psi
+    $proc = New-Object System.Diagnostics.Process 
+    $proc.StartInfo = $psi 
     [void]$proc.Start()
-    $stdout = $proc.StandardOutput.ReadToEnd()
+    $stdout = $proc.StandardOutput.ReadToEnd() 
     $stderr = $proc.StandardError.ReadToEnd()
-    $proc.WaitForExit()
+    $proc.WaitForExit() 
     if($proc.ExitCode -ne 0) {
         Write-Host "`n`nstdout:`n$stdout`n`nstderr:`n$stderr`n`n"
     }
 
     return $proc.ExitCode, $stdout, $stderr
+}
+
+function Build-Docker {
+    $FOLDER = Get-EnvOrDefault 'FOLDER' ''
+    $FOLDER = $FOLDER.Trim()
+
+    if(-not [System.String]::IsNullOrWhiteSpace($env:JENKINS_VERSION)) {
+        return (Run-Program 'docker.exe' "build --build-arg JENKINS_VERSION=$env:JENKINS_VERSION --build-arg JENKINS_SHA=$env:JENKINS_SHA $args $FOLDER")
+    } 
+    return (Run-Program 'docker.exe' "build $args $FOLDER")
+}
+
+function Build-DockerChild($tag, $dir) {
+    Get-Content "$dir/Dockerfile-windows" | ForEach-Object{$_ -replace "FROM bats-jenkins","FROM $(Get-SutImage)" } | Out-File -FilePath "$dir/Dockerfile-windows.tmp" -Encoding ASCII
+    return (Run-Program 'docker.exe' "build -t `"$tag`" $args -f `"$dir/Dockerfile-windows.tmp`" `"$dir`"")
+}
+
+function Get-JenkinsUrl($Container) {
+    $DOCKER_IP=(Get-EnvOrDefault 'DOCKER_HOST' 'localhost') | %{$_ -replace 'tcp://(.*):[0-9]*','$1'} | Select-Object -First 1
+    $port = (docker port "$CONTAINER" 8080 | %{$_ -split ':'})[1]
+    return "http://$($DOCKER_IP):$($port)"
+}
+
+function Get-JenkinsPassword($Container) {
+    $res = docker exec $Container powershell.exe -c 'if(Test-Path "C:\ProgramData\Jenkins\JenkinsHome\secrets\initialAdminPassword") { Get-Content "C:\ProgramData\Jenkins\JenkinsHome\secrets\initialAdminPassword" ; exit 0 } else { exit -1 }'
+    if($lastExitCode -eq 0) {
+        return $res
+    }
+    return $null
+}
+
+function Get-JenkinsWebpage($Container, $Url) {
+    $jenkinsPassword = Get-JenkinsPassword $Container
+    $jenkinsUrl = Get-JenkinsUrl $Container
+    if($null -ne $jenkinsPassword) {
+        $pair = "admin:$($jenkinsPassword)"
+        $encodedCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
+        $basicAuthValue = "Basic $encodedCreds"
+        $Headers = @{ Authorization = $basicAuthValue }
+
+        $res = Invoke-WebRequest -Uri $('{0}{1}' -f $jenkinsUrl, $Url) -Headers $Headers -TimeoutSec 60 -Method Get -UseBasicParsing
+        if($res.StatusCode -eq 200) {
+            return $res.Content
+        } 
+    }
+    return $null    
+}
+
+function Test-Url($Container, $Url) {
+    $jenkinsPassword = Get-JenkinsPassword $Container
+    $jenkinsUrl = Get-JenkinsUrl $Container
+    if($null -ne $jenkinsPassword) {
+        $pair = "admin:$($jenkinsPassword)"
+        $encodedCreds = [System.Convert]::ToBase64String([System.Text.Encoding]::ASCII.GetBytes($pair))
+        $basicAuthValue = "Basic $encodedCreds"
+        $Headers = @{ Authorization = $basicAuthValue }
+
+        $res = Invoke-WebRequest -Uri $('{0}{1}' -f $jenkinsUrl, $Url) -Headers $Headers -TimeoutSec 60 -Method Head -UseBasicParsing
+        if($res.StatusCode -eq 200) {
+            return $true
+        } 
+    }
+    Write-Error "URL $(Get-JenkinsUrl $Container)$Url failed"
+    return $false    
+}
+
+function Cleanup($image) {
+    docker kill "$image" 2>&1 | Out-Null
+    docker rm -fv "$image" 2>&1 | Out-Null
+}
+
+function Unzip-Manifest($Container, $Plugin, $Work) {
+    return (Run-Program "docker.exe" "run --rm -v `"${Work}:C:\ProgramData\Jenkins\JenkinsHome`" $Container mkdir C:/ProgramData/Jenkins/temp | Out-Null ; Copy-Item C:/ProgramData/Jenkins/JenkinsHome/plugins/$Plugin C:/ProgramData/Jenkins/temp/$Plugin.zip ; Expand-Archive C:/ProgramData/Jenkins/temp/$Plugin.zip -Destinationpath C:/ProgramData/Jenkins/temp ; `$content = Get-Content C:/ProgramData/Jenkins/temp/META-INF/MANIFEST.MF ; Remove-Item -Force -Recurse C:/ProgramData/Jenkins/temp ; Write-Host `$content ; exit 0")
 }

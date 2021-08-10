@@ -1,70 +1,69 @@
-pipeline {
-    agent none
+#!/usr/bin/env groovy
 
-    options {        
-        buildDiscarder(logRotator(daysToKeepStr: '10'))
-        timestamps()
-    }
+def listOfProperties = []
+listOfProperties << buildDiscarder(logRotator(numToKeepStr: '50', artifactNumToKeepStr: '5'))
 
-    triggers {
-        pollSCM('H * * * *')
-    }
+// Only master branch will run on a timer basis
+if (env.BRANCH_NAME.trim() == 'master') {
+    listOfProperties << pipelineTriggers([cron('''H H/6 * * 0-2,4-6
+H 6,21 * * 3''')])
+}
 
-    stages {
-        stage('Build') {
-            parallel {
-                stage('Windows') {
-                    agent {
-                        label "windock"
+properties(listOfProperties)
+
+stage('Build') {
+    def builds = [:]
+    builds['windows'] = {
+        nodeWithTimeout('windock') {
+            stage('Checkout') {
+                checkout scm
+            }
+
+            if (!infra.isTrusted()) {
+
+                /* Outside of the trusted.ci environment, we're building and testing
+                * the Dockerfile in this repository, but not publishing to docker hub
+                */
+                stage('Build') {
+                    infra.withDockerCredentials {
+                        powershell './make.ps1'
                     }
-                    options {
-                        timeout(time: 60, unit: 'MINUTES')
-                    }
-                    environment {
-                        DOCKERHUB_ORGANISATION = "${infra.isTrusted() ? 'jenkins' : 'jenkins4eval'}"
-                    }
-                    steps {
-                        script {
-                            powershell '& ./make.ps1 test'
+                }
 
-                            def branchName = "${env.BRANCH_NAME}"
-                            if (branchName ==~ 'master') {
-                                // we can't use dockerhub builds for windows
-                                // so we publish here
-                                infra.withDockerCredentials {
-                                    powershell '& ./make.ps1 publish'
-                                }
-                            }
-
-                            if(env.TAG_NAME != null) {
-                                def tagItems = env.TAG_NAME.split('-')
-                                if(tagItems.length == 2) {
-                                    def remotingVersion = tagItems[0]
-                                    def buildNumber = tagItems[1]
-                                    // we need to build and publish the tag version
-                                    infra.withDockerCredentials {
-                                        powershell "& ./make.ps1 -PushVersions -RemotingVersion $remotingVersion -BuildNumber $buildNumber publish"
-                                    }
-                                }
-                            }
-
-                            // cleanup any docker images
-                            powershell '& docker system prune --force --all'
+                stage('Test') {
+                    infra.withDockerCredentials {
+                        def windowsTestStatus = powershell(script: './make.ps1 test', returnStatus: true)
+                        junit(allowEmptyResults: true, keepLongStdio: true, testResults: 'target/**/junit-results.xml')
+                        if (windowsTestStatus > 0) {
+                            // If something bad happened let's clean up the docker images
+                            powershell(script: '& docker system prune --force --all', returnStatus: true)
+                            error('Windows test stage failed.')
                         }
                     }
                 }
-                stage('Linux') {
-                    agent {
-                        label "docker&&linux"
-                    }
-                    options {
-                        timeout(time: 30, unit: 'MINUTES')
-                    }
-                    steps {
-                        script {
-                            if(!infra.isTrusted()) {
-                                sh './build.sh ; docker system prune --force --all'
-                            }
+
+                // disable until we get the parallel changes merged in
+                //def branchName = "${env.BRANCH_NAME}"
+                //if (branchName ==~ 'master'){
+                //    stage('Publish Experimental') {
+                //        infra.withDockerCredentials {
+                //            withEnv(['DOCKERHUB_ORGANISATION=jenkins4eval','DOCKERHUB_REPO=jenkins']) {
+                //                powershell './make.ps1 publish'
+                //            }
+                //        }
+                //    }
+                //}
+
+                // Let's always clean up the docker images at the very end
+                powershell(script: '& docker system prune --force --all', returnStatus: true)
+            } else {
+                /* In our trusted.ci environment we only want to be publishing our
+                * containers from artifacts
+                */
+                stage('Publish') {
+                    infra.withDockerCredentials {
+                        withEnv(['DOCKERHUB_ORGANISATION=jenkins','DOCKERHUB_REPO=jenkins']) {
+                            powershell './make.ps1 publish'
                         }
                     }
                 }
@@ -72,6 +71,78 @@ pipeline {
         }
     }
 
+    if (!infra.isTrusted()) {
+        def images = ['almalinux_jdk11', 'alpine_jdk8', 'centos7_jdk8', 'centos8_jdk8', 'debian_jdk11', 'debian_jdk8', 'debian_slim_jdk8', 'rhel_ubi8_jdk11']
+        for (i in images) {
+            def imageToBuild = i
+
+            builds[imageToBuild] = {
+                nodeWithTimeout('docker') {
+                    deleteDir()
+
+                    stage('Checkout') {
+                        checkout scm
+                    }
+
+                    stage('shellcheck') {
+                        sh 'make shellcheck'
+                    }
+
+                    /* Outside of the trusted.ci environment, we're building and testing
+                    * the Dockerfile in this repository, but not publishing to docker hub
+                    */
+                    stage("Build linux-${imageToBuild}") {
+                        infra.withDockerCredentials {
+                            sh "make build-${imageToBuild}"
+                        }
+                    }
+
+                    stage("Test linux-${imageToBuild}") {
+                        sh "make prepare-test"
+                        try {
+                            infra.withDockerCredentials {
+                                sh "make test-${imageToBuild}"
+                            }
+                        } catch (err) {
+                            error("${err.toString()}")
+                        } finally {
+                            junit(allowEmptyResults: true, keepLongStdio: true, testResults: 'target/*.xml')
+                        }
+                    }
+
+                    // Let's always clean up the docker images at the very end
+                    sh(script: 'docker system prune --force --all', returnStatus: true)
+                }
+            }
+        }
+    } else {
+        builds['linux'] = {
+            nodeWithTimeout('docker') {
+                stage('Checkout') {
+                    checkout scm
+                }
+
+                stage('Publish') {
+                    infra.withDockerCredentials {
+                        sh '''
+                            docker buildx create --use
+                            docker run --rm --privileged multiarch/qemu-user-static --reset -p yes
+                            make publish
+                            '''
+                    }
+                }
+            }
+        }
+    }
+
+    parallel builds
 }
 
-// vim: ft=groovy
+
+void nodeWithTimeout(String label, def body) {
+    node(label) {
+        timeout(time: 60, unit: 'MINUTES') {
+            body.call()
+        }
+    }
+}

@@ -2,15 +2,14 @@
 Param(
     [Parameter(Position=1)]
     [String] $Target = "build",
+    [String] $TagPrefix = 'latest',
     [String] $AdditionalArgs = '',
     [String] $Build = '',
-    [String] $RemotingVersion = '4.3',
-    [String] $BuildNumber = "6",
-    [switch] $PushVersions = $false
+    [String] $JenkinsVersion = ''
 )
 
-$Repository = 'agent'
-$Organization = 'jenkins'
+$Repository = 'jenkins'
+$Organization = 'jenkins4eval'
 
 if(![String]::IsNullOrWhiteSpace($env:DOCKERHUB_REPO)) {
     $Repository = $env:DOCKERHUB_REPO
@@ -22,17 +21,19 @@ if(![String]::IsNullOrWhiteSpace($env:DOCKERHUB_ORGANISATION)) {
 
 # this is the jdk version that will be used for the 'bare tag' images, e.g., jdk8-windowsservercore-1809 -> windowsserver-1809
 $defaultBuild = '8'
+$defaultJvm = 'hotspot'
 $builds = @{}
 
 Get-ChildItem -Recurse -Include windows -Directory | ForEach-Object {
-    Get-ChildItem -Directory -Path $_ | Where-Object { Test-Path (Join-Path $_.FullName "Dockerfile") } | ForEach-Object {
+    Get-ChildItem -Recurse -Directory -Path $_ | Where-Object { Test-Path (Join-Path $_.FullName "Dockerfile") } | ForEach-Object {
         $dir = $_.FullName.Replace((Get-Location), "").TrimStart("\")
         $items = $dir.Split("\")
         $jdkVersion = $items[0]
         $baseImage = $items[2]
-        $basicTag = "jdk${jdkVersion}-${baseImage}"
+        $jvmType = $items[3]
+        $basicTag = "jdk${jdkVersion}-${jvmType}-${baseImage}"
         $tags = @( $basicTag )
-        if($jdkVersion -eq $defaultBuild) {
+        if(($jdkVersion -eq $defaultBuild) -and ($jvmType -eq $defaultJvm)) {
             $tags += $baseImage
         }
 
@@ -46,16 +47,19 @@ Get-ChildItem -Recurse -Include windows -Directory | ForEach-Object {
 if(![System.String]::IsNullOrWhiteSpace($Build) -and $builds.ContainsKey($Build)) {
     foreach($tag in $builds[$Build]['Tags']) {
         Write-Host "Building $Build => tag=$tag"
-        $cmd = "docker build --build-arg VERSION='$RemotingVersion' -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $tag, $AdditionalArgs, $builds[$Build]['Folder']
+        Copy-Item -Path 'jenkins.ps1' -Destination (Join-Path $builds[$Build]['Folder'] 'jenkins.ps1') -Force
+        Copy-Item -Path 'jenkins-support.psm1' -Destination (Join-Path $builds[$Build]['Folder'] 'jenkins-support.psm1') -Force
+        Copy-Item -Path 'jenkins-plugin-cli.ps1' -Destination (Join-Path $builds[$Build]['Folder'] 'jenkins-plugin-cli.ps1') -Force
+        $cmd = "docker build -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $tag, $AdditionalArgs, $builds[$Build]['Folder']
         Invoke-Expression $cmd
 
         if($PushVersions) {
-            $buildTag = "$RemotingVersion-$BuildNumber-$tag"
+            $buildTag = "$JenkinsVersion-$tag"
             if($tag -eq 'latest') {
-                $buildTag = "$RemotingVersion-$BuildNumber"
+                $buildTag = "$JenkinsVersion"
             }
             Write-Host "Building $Build => tag=$buildTag"
-            $cmd = "docker build --build-arg VERSION='$RemotingVersion' -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $buildTag, $AdditionalArgs, $builds[$Build]['Folder']
+            $cmd = "docker build -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $buildTag, $AdditionalArgs, $builds[$Build]['Folder']
             Invoke-Expression $cmd
         }
     }
@@ -63,16 +67,19 @@ if(![System.String]::IsNullOrWhiteSpace($Build) -and $builds.ContainsKey($Build)
     foreach($b in $builds.Keys) {
         foreach($tag in $builds[$b]['Tags']) {
             Write-Host "Building $b => tag=$tag"
-            $cmd = "docker build --build-arg VERSION='$RemotingVersion' -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $tag, $AdditionalArgs, $builds[$b]['Folder']
+            Copy-Item -Path 'jenkins.ps1' -Destination (Join-Path $builds[$b]['Folder'] 'jenkins.ps1') -Force
+            Copy-Item -Path 'jenkins-support.psm1' -Destination (Join-Path $builds[$b]['Folder'] 'jenkins-support.psm1') -Force
+            Copy-Item -Path 'jenkins-plugin-cli.ps1' -Destination (Join-Path $builds[$b]['Folder'] 'jenkins-plugin-cli.ps1') -Force
+            $cmd = "docker build -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $tag, $AdditionalArgs, $builds[$b]['Folder']
             Invoke-Expression $cmd
 
             if($PushVersions) {
-                $buildTag = "$RemotingVersion-$BuildNumber-$tag"
+                $buildTag = "$JenkinsVersion-$tag"
                 if($tag -eq 'latest') {
-                    $buildTag = "$RemotingVersion-$BuildNumber"
+                    $buildTag = "$JenkinsVersion"
                 }
                 Write-Host "Building $Build => tag=$buildTag"
-                $cmd = "docker build --build-arg VERSION='$RemotingVersion' -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $buildTag, $AdditionalArgs, $builds[$b]['Folder']
+                $cmd = "docker build -t {0}/{1}:{2} {3} {4}" -f $Organization, $Repository, $buildTag, $AdditionalArgs, $builds[$b]['Folder']
                 Invoke-Expression $cmd
             }
         }
@@ -84,6 +91,8 @@ if($lastExitCode -ne 0) {
 }
 
 if($target -eq "test") {
+    # Only fail the run afterwards in case of any test failures
+    $testFailed = $false
     $mod = Get-InstalledModule -Name Pester -MinimumVersion 4.9.0 -MaximumVersion 4.99.99 -ErrorAction SilentlyContinue
     if($null -eq $mod) {
         $module = "c:\Program Files\WindowsPowerShell\Modules\Pester"
@@ -97,37 +106,71 @@ if($target -eq "test") {
     }
 
     if(![System.String]::IsNullOrWhiteSpace($Build) -and $builds.ContainsKey($Build)) {
-        $env:FOLDER = $builds[$Build]['Folder']
-        $env:VERSION = "$RemotingVersion-$BuildNumber"
-        Invoke-Pester -Path tests -EnableExit
-        Remove-Item env:\FOLDER
-        Remove-Item env:\VERSION
+        $folder = $builds[$Build]['Folder']
+        $env:FOLDER = $folder
+        if(Test-Path ".\target\$folder") {
+            Remove-Item -Force -Recurse ".\target\$folder"
+        }
+        New-Item -Path ".\target\$folder" -Type Directory | Out-Null
+        $TestResults = Invoke-Pester -Path tests -PassThru -OutputFile ".\target\$folder\junit-results.xml" -OutputFormat JUnitXml
+        if ($TestResults.FailedCount -gt 0) {
+            Write-Host "There were $($TestResults.FailedCount) failed tests in $Build"
+            $testFailed = $true
+        } else {
+            Write-Host "There were $($TestResults.PassedCount) passed tests out of $($TestResults.TotalCount) in $Build"
+        }
+        Remove-Item -Force env:\FOLDER
     } else {
         foreach($b in $builds.Keys) {
-            $env:FOLDER = $builds[$b]['Folder']
-            $env:VERSION = "$RemotingVersion-$BuildNumber"
-            Invoke-Pester -Path tests -EnableExit
-            Remove-Item env:\FOLDER
-            Remove-Item env:\VERSION
+            $folder = $builds[$b]['Folder']
+            $env:FOLDER = $folder
+            if(Test-Path ".\target\$folder") {
+                Remove-Item -Force -Recurse ".\target\$folder"
+            }
+            New-Item -Path ".\target\$folder" -Type Directory | Out-Null
+            $TestResults = Invoke-Pester -Path tests -PassThru -OutputFile ".\target\$folder\junit-results.xml" -OutputFormat JUnitXml
+            if ($TestResults.FailedCount -gt 0) {
+                Write-Host "There were $($TestResults.FailedCount) failed tests in $b"
+                $testFailed = $true
+            } else {
+                Write-Host "There were $($TestResults.PassedCount) passed tests out of $($TestResults.TotalCount) in $b"
+            }
+            Remove-Item -Force env:\FOLDER
         }
+    }
+
+    # Fail if any test failures
+    if($testFailed -ne $false) {
+        Write-Error "Test stage failed!"
+        exit 1
+    } else {
+        Write-Host "Test stage passed!"
     }
 }
 
 if($target -eq "publish") {
+    # Only fail the run afterwards in case of any issues when publishing the docker images
+    $publishFailed = 0
     if(![System.String]::IsNullOrWhiteSpace($Build) -and $builds.ContainsKey($Build)) {
         foreach($tag in $Builds[$Build]['Tags']) {
             Write-Host "Publishing $Build => tag=$tag"
             $cmd = "docker push {0}/{1}:{2}" -f $Organization, $Repository, $tag
             Invoke-Expression $cmd
+            if($lastExitCode -ne 0) {
+                $publishFailed = 1
+            }
 
             if($PushVersions) {
-                $buildTag = "$RemotingVersion-$BuildNumber-$tag"
+                $buildTag = "$JenkinsVersion-$tag"
                 if($tag -eq 'latest') {
-                    $buildTag = "$RemotingVersion-$BuildNumber"
+                    $buildTag = "$JenkinsVersion"
                 }
                 Write-Host "Publishing $Build => tag=$buildTag"
                 $cmd = "docker push {0}/{1}:{2}" -f $Organization, $Repository, $buildTag
                 Invoke-Expression $cmd
+                if($lastExitCode -ne 0) {
+                    $publishFailed = 1
+                }
             }
         }
     } else {
@@ -136,18 +179,30 @@ if($target -eq "publish") {
                 Write-Host "Publishing $b => tag=$tag"
                 $cmd = "docker push {0}/{1}:{2}" -f $Organization, $Repository, $tag
                 Invoke-Expression $cmd
+                if($lastExitCode -ne 0) {
+                    $publishFailed = 1
+                }
 
                 if($PushVersions) {
-                    $buildTag = "$RemotingVersion-$BuildNumber-$tag"
+                    $buildTag = "$JenkinsVersion-$tag"
                     if($tag -eq 'latest') {
-                        $buildTag = "$RemotingVersion-$BuildNumber"
+                        $buildTag = "$JenkinsVersion"
                     }
                     Write-Host "Publishing $Build => tag=$buildTag"
                     $cmd = "docker push {0}/{1}:{2}" -f $Organization, $Repository, $buildTag
                     Invoke-Expression $cmd
+                    if($lastExitCode -ne 0) {
+                        $publishFailed = 1
+                    }
                 }
             }
         }
+    }
+
+    # Fail if any issues when publising the docker images
+    if($publishFailed -ne 0) {
+        Write-Error "Publish failed!"
+        exit 1
     }
 }
 
