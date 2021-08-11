@@ -18,7 +18,7 @@ ARG GIT_LFS_VERSION=2.13.3
 # required for multi-arch support, revert to package cloud after:
 # https://github.com/git-lfs/git-lfs/issues/4546
 COPY git_lfs_pub.gpg /tmp/git_lfs_pub.gpg
-RUN GIT_LFS_ARCHIVE="git-lfs-linux-amd64-v${GIT_LFS_VERSION}.tar.gz" \
+RUN GIT_LFS_ARCHIVE="git-lfs-linux-arm64-v${GIT_LFS_VERSION}.tar.gz" \
     GIT_LFS_RELEASE_URL="https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/${GIT_LFS_ARCHIVE}"\
     set -x; curl --fail --silent --location --show-error --output "/tmp/${GIT_LFS_ARCHIVE}" "${GIT_LFS_RELEASE_URL}" && \
     curl --fail --silent --location --show-error --output "/tmp/git-lfs-sha256sums.asc" https://github.com/git-lfs/git-lfs/releases/download/v${GIT_LFS_VERSION}/sha256sums.asc && \
