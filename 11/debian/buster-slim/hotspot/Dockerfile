@@ -95,7 +95,6 @@ RUN echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.li
     apt-get install libhibernate3-java -y && \
     apt-get install libxstream-java -y && \
     apt-get install libavahi-client3 -y && apt-get install libavahi-common-data -y && apt-get install libavahi-common3 -y && \
-    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 ARG GIT_LFS_VERSION=2.13.3
