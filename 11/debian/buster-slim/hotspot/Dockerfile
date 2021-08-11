@@ -3,6 +3,10 @@ FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debianslim-slim
 RUN apt-get update && \
     apt-get upgrade -y && \
     apt-get install -y git curl gpg unzip libfreetype6 libfontconfig1 && \
+    echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.list.d/bullseye.list && \
+    apt-get install git -y && \
+    apt-get install git-man -y && \
+    apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
 ARG GIT_LFS_VERSION=2.13.3
