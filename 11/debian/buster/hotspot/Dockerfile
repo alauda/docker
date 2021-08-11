@@ -2,7 +2,7 @@ FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debian
 
 RUN echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.list.d/bullseye.list && \
     apt-get update -y && \
-    apt-get install git curl gpg unzip -y && \
+    apt-get install unzip -y && \
     apt-get install bash -y && \
     apt-get install dirmngr -y && \
     apt-get install gnupg -y && \
