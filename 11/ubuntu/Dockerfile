@@ -1,10 +1,8 @@
-FROM adoptopenjdk/openjdk11:jdk-11.0.11_9-debian
+FROM build-harbor.alauda.cn/ops/openjdk:11-ubuntu21.10
 
 RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y git curl gpg unzip && \
+    apt-get install -y git curl gpg unzip libfreetype6 libfontconfig1 && \
     rm -rf /var/lib/apt/lists/*
-
 ARG GIT_LFS_VERSION=2.13.3
 
 # required for multi-arch support, revert to package cloud after:
@@ -83,7 +81,6 @@ EXPOSE ${http_port}
 EXPOSE ${agent_port}
 
 ENV COPY_REFERENCE_FILE_LOG $JENKINS_HOME/copy_reference_file.log
-ENV JENKINS_ENABLE_FUTURE_JAVA=true
 
 USER ${user}
 
