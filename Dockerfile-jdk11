@@ -6,7 +6,7 @@ RUN echo 'deb http://ftp.debian.org/debian bullseye main' >> /etc/apt/sources.li
     apt-get update -y && \
     apt-get install git -y && \
     apt-get install curl -y && \
-    apt-get install libgnutls30/testing -y && \
+    apt-get install libgnutls30 -y && \
     apt-get install python-all -y && \
     apt-get install sqlite3 -y && \
     apt-get install libseccomp2 -y && \
