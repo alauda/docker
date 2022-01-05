@@ -42,6 +42,7 @@ RUN curl --create-dirs -fsSLo /usr/share/jenkins/agent.jar https://repo.jenkins-
 
 USER ${user}
 ENV AGENT_WORKDIR=${AGENT_WORKDIR}
+ENV MALLOC_ARENA_MAX 4
 RUN mkdir /home/${user}/.jenkins && mkdir -p ${AGENT_WORKDIR}
 
 VOLUME /home/${user}/.jenkins
