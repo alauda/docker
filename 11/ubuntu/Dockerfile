@@ -62,7 +62,7 @@ RUN curl -fsSL https://github.com/krallin/tini/releases/download/${TINI_VERSION}
 # jenkins version being bundled in this docker image
 ARG JENKINS_VERSION
 ENV JENKINS_VERSION ${JENKINS_VERSION:-2.235.4}
-ENV MALLOC_ARENA_MAX 4
+ENV MALLOC_ARENA_MAX 1
 
 COPY jenkins.war /usr/share/jenkins/jenkins.war
 
