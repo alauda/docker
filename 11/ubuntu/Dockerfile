@@ -1,4 +1,4 @@
-FROM build-harbor.alauda.cn/ops/openjdk:11-ubuntu
+FROM build-harbor.alauda.cn/ops/openjdk:11-ubuntu22.04
 
 RUN apt-get update && \
     apt-get install -y git curl gpg unzip libfreetype6 libfontconfig1 && \
